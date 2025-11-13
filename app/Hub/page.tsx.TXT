@@ -1,0 +1,148 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { supabase } from "@/lib/supabaseClient"
+
+type Profile = {
+  id: string
+  display_name: string
+  role: string
+}
+
+export default function HubPage() {
+  const [loading, setLoading] = useState(true)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const load = async () => {
+      // 1) Get current user
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser()
+
+      if (userError || !user) {
+        // Not logged in → send to login page
+        window.location.href = "/login"
+        return
+      }
+
+      // 2) Try to get existing profile
+      const { data: existingProfile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle()
+
+      if (profileError) {
+        console.error(profileError)
+        setError("Could not load profile.")
+        setLoading(false)
+        return
+      }
+
+      let finalProfile = existingProfile as Profile | null
+
+      // 3) If no profile, create one
+      if (!existingProfile) {
+        const defaultName =
+          user.email?.split("@")[0] || "New Adventurer"
+
+        const { data: inserted, error: insertError } = await supabase
+          .from("profiles")
+          .insert({
+            id: user.id,
+            display_name: defaultName,
+            role: "PLAYER",
+          })
+          .select()
+          .single()
+
+        if (insertError) {
+          console.error(insertError)
+          setError("Could not create profile.")
+          setLoading(false)
+          return
+        }
+
+        finalProfile = inserted as Profile
+      }
+
+      setProfile(finalProfile)
+      setLoading(false)
+    }
+
+    load()
+  }, [])
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    window.location.href = "/login"
+  }
+
+  if (loading) {
+    return (
+      <div style={{ padding: 32, fontFamily: "sans-serif" }}>
+        Loading your adventurer profile...
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: 32, fontFamily: "sans-serif", color: "red" }}>
+        {error}
+      </div>
+    )
+  }
+
+  if (!profile) {
+    return (
+      <div style={{ padding: 32, fontFamily: "sans-serif" }}>
+        No profile found.
+      </div>
+    )
+  }
+
+  return (
+    <div
+      style={{
+        padding: 32,
+        fontFamily: "sans-serif",
+        maxWidth: 800,
+        margin: "0 auto",
+      }}
+    >
+      <h1>Adventurer&apos;s Hub</h1>
+
+      <div
+        style={{
+          marginTop: 24,
+          padding: 16,
+          border: "1px solid #ccc",
+          borderRadius: 8,
+        }}
+      >
+        <h2>Welcome, {profile.display_name}</h2>
+        <p>Role: {profile.role}</p>
+      </div>
+
+      <div style={{ marginTop: 24, display: "flex", gap: 12 }}>
+        <button
+          onClick={() => (window.location.href = "/")}
+          style={{ padding: "8px 16px" }}
+        >
+          Back to Home
+        </button>
+
+        <button
+          onClick={handleLogout}
+          style={{ padding: "8px 16px", background: "#222", color: "white" }}
+        >
+          Logout
+        </button>
+      </div>
+    </div>
+  )
+}
